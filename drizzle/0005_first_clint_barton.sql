@@ -1,0 +1,1 @@
+ALTER TABLE `missions` MODIFY COLUMN `category` varchar(128) NOT NULL DEFAULT 'other';
