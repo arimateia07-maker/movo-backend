@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express from "express";
+import { rateLimit } from "express-rate-limit";
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
@@ -8,6 +9,11 @@ import { registerLegalRoutes } from "./legalRoutes";
 import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
+
+function positiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -71,6 +77,25 @@ async function startServer() {
 
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+  const rateLimitWindowMs = positiveInteger(process.env.RATE_LIMIT_WINDOW_MS, 60_000);
+  const apiLimiter = rateLimit({
+    windowMs: rateLimitWindowMs,
+    limit: positiveInteger(process.env.RATE_LIMIT_MAX, 120),
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    message: { error: "Muitas requisições. Tente novamente em instantes." },
+  });
+  const authLimiter = rateLimit({
+    windowMs: rateLimitWindowMs,
+    limit: positiveInteger(process.env.AUTH_RATE_LIMIT_MAX, 20),
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    message: { error: "Muitas tentativas de autenticação. Tente novamente em instantes." },
+  });
+
+  app.use("/api/auth", authLimiter);
+  app.use("/api", apiLimiter);
 
   registerStorageProxy(app);
   registerAuthRoutes(app);
